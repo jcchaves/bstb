@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import logging
 from logging.config import dictConfig
 import os
-from quart import Quart, request
+from quart import Quart, request, websocket
 from quart_cors import cors
 import sys
 from threading import Thread
@@ -127,5 +127,18 @@ async def listOperations():
     return cache["operationManager"].listOperations()
 
 
+async def background_task():
+    await asyncio.sleep(1)
+
+
+@app.websocket("/ws")
+async def ws():
+    i = 0
+    while True:
+        await background_task()
+        await websocket.send(f"Counter value: {i}")
+        i += 1
+
+
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=8080, debug=True)
