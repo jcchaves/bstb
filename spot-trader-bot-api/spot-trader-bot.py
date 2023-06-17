@@ -108,21 +108,21 @@ async def releaseOperationThreads():
         stop_async(_operation_manager_loop)
 
 
-@app.post("/events")
+@app.route("/events", methods=["POST"])
 async def handleEvents():
     event = await request.get_json()
     logging.info(f"Received event: {event}")
     return event
 
 
-@app.post("/operations")
+@app.route("/operations", methods=["POST"])
 async def createOperation():
     data = await request.get_json()
     operation = cache["operationManager"].createOperation(data)
     return operation
 
 
-@app.get("/operations")
+@app.route("/operations", methods=["GET"])
 async def listOperations():
     return cache["operationManager"].listOperations()
 
