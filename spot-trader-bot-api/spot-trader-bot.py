@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import logging
 from logging.config import dictConfig
 import os
-from quart import Quart, request, websocket
+from quart import Quart, request, websocket as qws
 from quart_cors import cors
 import sys
 from threading import Thread
@@ -12,6 +12,7 @@ import traceback
 
 from OperationManager import OperationManager
 from OperationOrdersFetcher import OperationOrdersFetcher
+from PriceMovementMonitor import PriceMovementMonitor
 
 logger_format = "%(asctime)s:%(threadName)s:%(name)s:%(message)s"
 load_dotenv()
@@ -52,6 +53,18 @@ dictConfig(
                 "handlers": ["streamHandler", "fileHandler"],
                 "level": "DEBUG",
             },
+            "PriceMovementMonitor": {
+                "handlers": ["streamHandler", "fileHandler"],
+                "level": "DEBUG",
+            },
+            "binance": {
+                "handlers": ["streamHandler", "fileHandler"],
+                "level": "ERROR",
+            },
+            "asyncio": {
+                "handlers": ["streamHandler", "fileHandler"],
+                "level": "ERROR",
+            },
             "quart.app": {"handlers": ["streamHandler"], "level": "DEBUG"},
             "quart.serving": {"handlers": ["streamHandler"], "level": "DEBUG"},
         },
@@ -71,8 +84,17 @@ def stop_async(loop):
     loop.call_soon_threadsafe(loop.stop)
 
 
-_operation_orders_fetcher_loop = _start_async()
-_operation_manager_loop = _start_async()
+# _operation_orders_fetcher_loop = _start_async()
+# _operation_manager_loop = _start_async()
+_price_movement_monitor_loop = _start_async()
+_price_movement_monitor_loop.set_debug(True)
+
+
+def runPriceMovementMonitor(bncClient, loop):
+    asyncio.set_event_loop(loop)
+    PriceMovementMonitor(bncClient, loop)
+    loop.run_forever()
+
 
 cache = {}
 
@@ -84,17 +106,24 @@ async def createOperationThreads():
         SECRET_KEY = os.getenv("SECRET_KEY")
         bncClient = await AsyncClient.create(ACCESS_KEY, SECRET_KEY)
 
-        ooft = Thread(target=_operation_orders_fetcher_loop.run_forever)
-        ooft.start()
+        # ooft = Thread(target=_operation_orders_fetcher_loop.run_forever)
+        # ooft.start()
 
-        omt = Thread(target=_operation_manager_loop.run_forever)
-        omt.start()
+        # omt = Thread(target=_operation_manager_loop.run_forever)
+        # omt.start()
 
-        operationOrdersFetcher = OperationOrdersFetcher(_operation_orders_fetcher_loop)
-        cache["operationManager"] = OperationManager(
-            bncClient, operationOrdersFetcher, _operation_manager_loop
+        pmm = Thread(
+            target=runPriceMovementMonitor,
+            args=(bncClient, _price_movement_monitor_loop),
         )
+        pmm.start()
+
+        # operationOrdersFetcher = OperationOrdersFetcher(_operation_orders_fetcher_loop)
+        # cache["operationManager"] = OperationManager(
+        #     bncClient, operationOrdersFetcher, _operation_manager_loop
+        # )
         logging.info("Main started")
+        await bncClient.close_connection()
     except Exception as e:
         traceback.print_exc(file=sys.stdout)
         raise e
@@ -102,10 +131,13 @@ async def createOperationThreads():
 
 @app.after_serving
 async def releaseOperationThreads():
-    if _operation_orders_fetcher_loop is not None:
-        stop_async(_operation_orders_fetcher_loop)
-    if _operation_manager_loop is not None:
-        stop_async(_operation_manager_loop)
+    # if _operation_orders_fetcher_loop is not None:
+    #     stop_async(_operation_orders_fetcher_loop)
+    # if _operation_manager_loop is not None:
+    #     stop_async(_operation_manager_loop)
+    if _price_movement_monitor_loop is not None:
+        stop_async(_price_movement_monitor_loop)
+    pass
 
 
 @app.route("/events", methods=["POST"])
@@ -136,7 +168,7 @@ async def ws():
     i = 0
     while True:
         await background_task()
-        await websocket.send(f"Counter value: {i}")
+        await qws.send(f"Counter value: {i}")
         i += 1
 
 
