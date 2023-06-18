@@ -1,6 +1,7 @@
 import asyncio
 from binance import AsyncClient
 from dotenv import load_dotenv
+import json
 import logging
 from logging.config import dictConfig
 import os
@@ -13,6 +14,7 @@ import traceback
 from OperationManager import OperationManager
 from OperationOrdersFetcher import OperationOrdersFetcher
 from PriceMovementMonitor import PriceMovementMonitor
+from WSPriceMovementAlertNotifier import WSPriceMovementAlertNotifier
 
 logger_format = "%(asctime)s:%(threadName)s:%(name)s:%(message)s"
 load_dotenv()
@@ -28,7 +30,7 @@ dictConfig(
         "handlers": {
             "streamHandler": {
                 "class": "logging.StreamHandler",
-                "level": "INFO",
+                "level": "DEBUG",
                 "formatter": "default",
                 "stream": "ext://sys.stdout",
             },
@@ -45,6 +47,10 @@ dictConfig(
                 "handlers": ["streamHandler", "fileHandler"],
                 "level": "DEBUG",
             },
+            "__main__": {
+                "handlers": ["streamHandler", "fileHandler"],
+                "level": "DEBUG",
+            },
             "OperationManager": {
                 "handlers": ["streamHandler", "fileHandler"],
                 "level": "DEBUG",
@@ -54,6 +60,10 @@ dictConfig(
                 "level": "DEBUG",
             },
             "PriceMovementMonitor": {
+                "handlers": ["streamHandler", "fileHandler"],
+                "level": "DEBUG",
+            },
+            "WSPriceMovementAlertNotifier": {
                 "handlers": ["streamHandler", "fileHandler"],
                 "level": "DEBUG",
             },
@@ -70,6 +80,8 @@ dictConfig(
         },
     }
 )
+
+logger = logging.getLogger(__name__)
 
 app = Quart(__name__)
 app = cors(app, allow_origin="*")
@@ -90,9 +102,9 @@ _price_movement_monitor_loop = _start_async()
 _price_movement_monitor_loop.set_debug(True)
 
 
-def runPriceMovementMonitor(bncClient, loop):
+def runPriceMovementMonitor(bncClient, mainLoop, loop, priceMovementAlertNotifier):
     asyncio.set_event_loop(loop)
-    PriceMovementMonitor(bncClient, loop)
+    PriceMovementMonitor(bncClient, mainLoop, loop, priceMovementAlertNotifier)
     loop.run_forever()
 
 
@@ -111,10 +123,18 @@ async def createOperationThreads():
 
         # omt = Thread(target=_operation_manager_loop.run_forever)
         # omt.start()
+        cache["priceMovementAlertNotifier"] = WSPriceMovementAlertNotifier(
+            asyncio.get_event_loop()
+        )
 
         pmm = Thread(
             target=runPriceMovementMonitor,
-            args=(bncClient, _price_movement_monitor_loop),
+            args=(
+                bncClient,
+                asyncio.get_event_loop(),
+                _price_movement_monitor_loop,
+                cache["priceMovementAlertNotifier"],
+            ),
         )
         pmm.start()
 
@@ -122,7 +142,7 @@ async def createOperationThreads():
         # cache["operationManager"] = OperationManager(
         #     bncClient, operationOrdersFetcher, _operation_manager_loop
         # )
-        logging.info("Main started")
+        logger.info("Main started")
         await bncClient.close_connection()
     except Exception as e:
         traceback.print_exc(file=sys.stdout)
@@ -143,7 +163,7 @@ async def releaseOperationThreads():
 @app.route("/events", methods=["POST"])
 async def handleEvents():
     event = await request.get_json()
-    logging.info(f"Received event: {event}")
+    logger.info(f"Received event: {event}")
     return event
 
 
@@ -159,17 +179,12 @@ async def listOperations():
     return cache["operationManager"].listOperations()
 
 
-async def background_task():
-    await asyncio.sleep(1)
-
-
 @app.websocket("/ws")
 async def ws():
-    i = 0
-    while True:
-        await background_task()
-        await qws.send(f"Counter value: {i}")
-        i += 1
+    logger.debug("Handle new WS connection....")
+    async for message in cache["priceMovementAlertNotifier"].subscribe():
+        logger.debug("Received new message...")
+        await qws.send(message)
 
 
 if __name__ == "__main__":
