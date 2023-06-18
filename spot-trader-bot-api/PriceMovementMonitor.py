@@ -11,11 +11,9 @@ class PriceMovementMonitor:
     def __init__(self, bncClient, loop):
         self._bncClient = bncClient
         self._loop = loop
-        logger.info("Creating PriceMovementMonitor...")
         self.submit_async(self.process(), loop)
 
     def submit_async(self, awaitable, loop):
-        logger.info(f"Loop: {loop}")
         loop.create_task(awaitable)
 
     def process_message(self, msg):
@@ -32,10 +30,8 @@ class PriceMovementMonitor:
         # then start receiving messages
         try:
             async with tickersSock as tickers:
-                logger.info("Waiting for messages...")
                 while True:
                     msg = await tickers.recv()
-                    logger.info("Processing message...")
                     self.process_message(msg)
         except BinanceAPIException as e:
             print(e)
