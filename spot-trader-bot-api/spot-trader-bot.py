@@ -11,6 +11,7 @@ import sys
 from threading import Thread
 import traceback
 
+from KLinesFetcher import KLinesFetcher
 from OperationManager import OperationManager
 from OperationOrdersFetcher import OperationOrdersFetcher
 from PriceMovementMonitor import PriceMovementMonitor
@@ -59,6 +60,10 @@ dictConfig(
                 "handlers": ["streamHandler", "fileHandler"],
                 "level": "DEBUG",
             },
+            "KLinesFetcher": {
+                "handlers": ["streamHandler", "fileHandler"],
+                "level": "DEBUG",
+            },
             "PriceMovementMonitor": {
                 "handlers": ["streamHandler", "fileHandler"],
                 "level": "DEBUG",
@@ -99,12 +104,21 @@ def stop_async(loop):
 # _operation_orders_fetcher_loop = _start_async()
 # _operation_manager_loop = _start_async()
 _price_movement_monitor_loop = _start_async()
-_price_movement_monitor_loop.set_debug(True)
 
 
-def runPriceMovementMonitor(bncClient, mainLoop, loop, priceMovementAlertNotifier):
+def initPriceMovementMonitor(
+    mainLoop, loop, priceMovementAlertNotifier, leverageThreshold, accessKey, secretKey
+):
     asyncio.set_event_loop(loop)
-    PriceMovementMonitor(bncClient, mainLoop, loop, priceMovementAlertNotifier)
+
+    PriceMovementMonitor(
+        mainLoop,
+        loop,
+        priceMovementAlertNotifier,
+        leverageThreshold,
+        accessKey,
+        secretKey,
+    )
     loop.run_forever()
 
 
@@ -116,7 +130,9 @@ async def createOperationThreads():
     try:
         ACCESS_KEY = os.getenv("ACCESS_KEY")
         SECRET_KEY = os.getenv("SECRET_KEY")
-        bncClient = await AsyncClient.create(ACCESS_KEY, SECRET_KEY)
+        LEVERAGE_THRESHOLD = os.getenv("LEVERAGE_THRESHOLD")
+        if LEVERAGE_THRESHOLD is None:
+            LEVERAGE_THRESHOLD = 50
 
         # ooft = Thread(target=_operation_orders_fetcher_loop.run_forever)
         # ooft.start()
@@ -124,16 +140,18 @@ async def createOperationThreads():
         # omt = Thread(target=_operation_manager_loop.run_forever)
         # omt.start()
         cache["priceMovementAlertNotifier"] = WSPriceMovementAlertNotifier(
-            asyncio.get_event_loop()
+            asyncio.get_event_loop(),
         )
 
         pmm = Thread(
-            target=runPriceMovementMonitor,
+            target=initPriceMovementMonitor,
             args=(
-                bncClient,
                 asyncio.get_event_loop(),
                 _price_movement_monitor_loop,
                 cache["priceMovementAlertNotifier"],
+                LEVERAGE_THRESHOLD,
+                ACCESS_KEY,
+                SECRET_KEY,
             ),
         )
         pmm.start()
@@ -143,7 +161,6 @@ async def createOperationThreads():
         #     bncClient, operationOrdersFetcher, _operation_manager_loop
         # )
         logger.info("Main started")
-        await bncClient.close_connection()
     except Exception as e:
         traceback.print_exc(file=sys.stdout)
         raise e
