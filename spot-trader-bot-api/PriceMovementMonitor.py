@@ -1,8 +1,11 @@
 import asyncio
+from datetime import datetime, timezone
 from binance import AsyncClient, BinanceSocketManager, Client
 from binance.exceptions import BinanceAPIException
 import json
 import logging
+
+from KLine import KLine
 from KLinesFetcher import KLinesFetcher
 
 logger = logging.getLogger(__name__)
@@ -10,12 +13,22 @@ logger = logging.getLogger(__name__)
 
 class PriceMovementMonitor:
     def __init__(
-        self, mainLoop, loop, alertNotifier, leverageThreshold, accessKey, secretKey
+        self,
+        mainLoop,
+        loop,
+        alertNotifier,
+        leverageThreshold,
+        longerPeriodPercentThreshold,
+        shorterPeriodPercentThreshold,
+        accessKey,
+        secretKey,
     ):
         self._mainLoop = mainLoop
         self._loop = loop
         self._alertNotifier = alertNotifier
         self._leverageThreshold = leverageThreshold
+        self._longerPeriodPercentThreshold = longerPeriodPercentThreshold
+        self._shorterPeriodPercentThreshold = shorterPeriodPercentThreshold
         self._accessKey = accessKey
         self._secretKey = secretKey
         self._klines = {}
@@ -29,26 +42,116 @@ class PriceMovementMonitor:
             # close and restart the socket
             logger.error("Websocket connection lost, attempting reconnection...")
         else:
-            logger.info(f"Verify conditions...")
-            longer_period_condition_met = False
-            shorter_period_condition_met = False
+            if "data" in msg:
+                latestTickers = msg["data"]
+                logger.debug("Update ticker klines...")
+                for ticker in latestTickers:
+                    logger.debug(f"Updating ticker '{ticker}' klines")
+                    self.updateTickerKline(
+                        ticker["s"],
+                        ticker["E"] / 1000,
+                        float(ticker["p"]),
+                    )
 
-            if longer_period_condition_met and shorter_period_condition_met:
-                # Send alert for shorter period
-                pass
-            elif longer_period_condition_met and not shorter_period_condition_met:
-                # Send alert for longer period
-                pass
-            elif not longer_period_condition_met and shorter_period_condition_met:
-                # Send alert for shorter period
-                pass
+                logger.info(f"Verify conditions...")
+                for ticker in latestTickers:
+                    longer_period_condition_met = False
+                    shorter_period_condition_met = False
+                    if ticker["s"] in self._klines:
+                        tickerKlines = self._klines[ticker["s"]]
+                        kline15MinsAgo = tickerKlines[0]
+                        kline2MinsAgo = tickerKlines[len(tickerKlines) - 3]
+                        latestKline = tickerKlines[len(tickerKlines) - 1]
+
+                        percentDiff15mins = self.calculatePercentDiff(
+                            kline15MinsAgo.getOpen(), latestKline.getClose()
+                        )
+                        longer_period_condition_met = (
+                            abs(percentDiff15mins) > self._longerPeriodPercentThreshold
+                        )
+                        percentDiff2mins = self.calculatePercentDiff(
+                            kline2MinsAgo.getOpen(), latestKline.getClose()
+                        )
+                        shorter_period_condition_met = (
+                            abs(percentDiff2mins) > self._shorterPeriodPercentThreshold
+                        )
+                        if longer_period_condition_met and shorter_period_condition_met:
+                            # Send alert for shorter period
+                            logger.info(
+                                f"ALERT - Ticker {ticker} has changed more than {self._shorterPeriodPercentThreshold} in the last 2 minutes"
+                            )
+                        elif (
+                            longer_period_condition_met
+                            and not shorter_period_condition_met
+                        ):
+                            # Send alert for longer period
+                            logger.info(
+                                f"ALERT - Ticker {ticker['s']} has changed more than {self._longerPeriodPercentThreshold}% in the last 15 minutes"
+                            )
+                        elif (
+                            not longer_period_condition_met
+                            and shorter_period_condition_met
+                        ):
+                            # Send alert for shorter period
+                            logger.info(
+                                f"ALERT - Ticker {ticker['s']} has changed more than {self._shorterPeriodPercentThreshold}% in the last 2 minutes"
+                            )
+                        else:
+                            # Do not send any alert
+                            logger.debug(
+                                f"No alert - Ticker {ticker['s']} has not changed more than {self._longerPeriodPercentThreshold}% in the last 15 minutes, or more than {self._shorterPeriodPercentThreshold}% in the last 2 minutes"
+                            )
+
+                        self._mainLoop.call_soon_threadsafe(
+                            self._alertNotifier.publish, json.dumps(msg)
+                        )
+                    else:
+                        logger.debug(f"No klines captured for symbol '{ticker['s']}'")
+
+    def updateTickerKline(self, ticker, timestamp, latestPrice):
+        if ticker in self._klines:
+            tickerKlines = self._klines[ticker]
+            currentTs = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            currentMinuteTs = datetime(
+                year=currentTs.year,
+                month=currentTs.month,
+                day=currentTs.day,
+                hour=currentTs.hour,
+                minute=currentTs.minute,
+                tzinfo=timezone.utc,
+            ).timestamp()
+            # Check if current minute kline has the same timestamp as the latest kline open timestamp in memory
+            latestTickerKline = tickerKlines[len(tickerKlines) - 1]
+            logger.debug(f"Latest kline for ticker {ticker}: {latestTickerKline}")
+            if latestTickerKline.getOpenTimestamp() != currentMinuteTs:
+                # if not, remove the oldest kline, create a new kline and set open and close price to the same value, and add the new kline to the list of klines for the ticker
+                currentMinuteKline = KLine(
+                    ticker,
+                    openTimestamp=currentMinuteTs,
+                    closeTimestamp=currentMinuteTs + 59,
+                    open=latestPrice,
+                    close=latestPrice,
+                )
+                tickerKlines.pop(0)
+                tickerKlines.append(currentMinuteKline)
             else:
-                # Do not send any alert
-                pass
+                # if it is, update its close value to the latest symbol price
+                curMinKline = tickerKlines.pop(len(tickerKlines) - 1)
+                updatedCurMinKline = KLine(
+                    curMinKline.getTicker(),
+                    openTimestamp=curMinKline.getOpenTimestamp(),
+                    closeTimestamp=curMinKline.getCloseTimestamp(),
+                    open=curMinKline.getOpen(),
+                    close=latestPrice,
+                )
+                tickerKlines.append(updatedCurMinKline)
+            # Update klines for ticker
+            self._klines[ticker] = tickerKlines
+        else:
+            logger.debug(f"No klines to update for ticker {ticker}")
 
-            self._mainLoop.call_soon_threadsafe(
-                self._alertNotifier.publish, json.dumps(msg)
-            )
+    def calculatePercentDiff(self, initial, latest):
+        return (latest - initial) / initial
 
     async def leverageTickers(self, tickers):
         filteredTickers = []
@@ -71,13 +174,18 @@ class PriceMovementMonitor:
             self._bncClient = await AsyncClient.create(self._accessKey, self._secretKey)
             logger.debug("Fetch all tickers of interest...")
             tickers = await self._bncClient.futures_symbol_ticker()
+
+            tickers = [{"symbol": "BTCUSDT"}]
+
             tickersOfInterest = [
                 ticker["symbol"]
                 for ticker in tickers
-                if ticker["symbol"][-4:] != "USDT"
+                if ticker["symbol"][-4:] == "USDT"
             ]
 
-            filteredTickers = await self.leverageTickers(tickersOfInterest)
+            logger.debug(f"Ticker of interest: {tickersOfInterest}")
+
+            # filteredTickers = await self.leverageTickers(tickersOfInterest)
 
             logger.debug("Fetching last 15 minutes klines...")
             klinesFetcher = KLinesFetcher(
@@ -85,9 +193,10 @@ class PriceMovementMonitor:
                 self._accessKey,
                 self._secretKey,
             )
-            await klinesFetcher.fetchAllTickersKLines(filteredTickers)
-            logger.info("Showing last 15 minutes klines")
-            print(klinesFetcher.getKLines())
+            await klinesFetcher.fetchAllTickersKLines(tickersOfInterest)
+            self._klines = klinesFetcher.getKLines()
+            logger.debug("Showing last 15 minutes klines")
+            logger.debug(self._klines)
             logger.info("Processing prices....")
             bm = BinanceSocketManager(self._bncClient, user_timeout=10, loop=self._loop)
             tickersSock = bm.all_mark_price_socket()

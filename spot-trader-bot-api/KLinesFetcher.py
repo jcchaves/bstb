@@ -67,5 +67,14 @@ class KLinesFetcher:
                 continue
 
         self._klines[symbol] = [
-            KLine(symbol, kline[0], kline[6], kline[1], kline[4]) for kline in klines
+            KLine(
+                symbol,
+                kline[0],
+                kline[6],
+                float(kline[1]),
+                float(
+                    kline[4],
+                ),
+            )
+            for kline in klines
         ]

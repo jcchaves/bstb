@@ -46,31 +46,31 @@ dictConfig(
         "loggers": {
             "root": {
                 "handlers": ["streamHandler", "fileHandler"],
-                "level": "DEBUG",
+                "level": "INFO",
             },
             "__main__": {
                 "handlers": ["streamHandler", "fileHandler"],
-                "level": "DEBUG",
+                "level": "INFO",
             },
             "OperationManager": {
                 "handlers": ["streamHandler", "fileHandler"],
-                "level": "DEBUG",
+                "level": "INFO",
             },
             "OperationOrdersFetcher": {
                 "handlers": ["streamHandler", "fileHandler"],
-                "level": "DEBUG",
+                "level": "INFO",
             },
             "KLinesFetcher": {
                 "handlers": ["streamHandler", "fileHandler"],
-                "level": "DEBUG",
+                "level": "INFO",
             },
             "PriceMovementMonitor": {
                 "handlers": ["streamHandler", "fileHandler"],
-                "level": "DEBUG",
+                "level": "INFO",
             },
             "WSPriceMovementAlertNotifier": {
                 "handlers": ["streamHandler", "fileHandler"],
-                "level": "DEBUG",
+                "level": "INFO",
             },
             "binance": {
                 "handlers": ["streamHandler", "fileHandler"],
@@ -107,7 +107,14 @@ _price_movement_monitor_loop = _start_async()
 
 
 def initPriceMovementMonitor(
-    mainLoop, loop, priceMovementAlertNotifier, leverageThreshold, accessKey, secretKey
+    mainLoop,
+    loop,
+    priceMovementAlertNotifier,
+    leverageThreshold,
+    longerPeriodPercentThreshold,
+    shorterPeriodPercentThreshold,
+    accessKey,
+    secretKey,
 ):
     asyncio.set_event_loop(loop)
 
@@ -116,6 +123,8 @@ def initPriceMovementMonitor(
         loop,
         priceMovementAlertNotifier,
         leverageThreshold,
+        longerPeriodPercentThreshold,
+        shorterPeriodPercentThreshold,
         accessKey,
         secretKey,
     )
@@ -133,6 +142,16 @@ async def createOperationThreads():
         LEVERAGE_THRESHOLD = os.getenv("LEVERAGE_THRESHOLD")
         if LEVERAGE_THRESHOLD is None:
             LEVERAGE_THRESHOLD = 50
+        LONGER_PERIOD_PERCENT_THRESHOLD = os.getenv("LONGER_PERIOD_PERCENT_THRESHOLD")
+        if LONGER_PERIOD_PERCENT_THRESHOLD is None:
+            LONGER_PERIOD_PERCENT_THRESHOLD = 3
+        else:
+            LONGER_PERIOD_PERCENT_THRESHOLD = int(LONGER_PERIOD_PERCENT_THRESHOLD)
+        SHORTER_PERIOD_PERCENT_THRESHOLD = os.getenv("SHORTER_PERIOD_PERCENT_THRESHOLD")
+        if SHORTER_PERIOD_PERCENT_THRESHOLD is None:
+            SHORTER_PERIOD_PERCENT_THRESHOLD = 1
+        else:
+            SHORTER_PERIOD_PERCENT_THRESHOLD = int(SHORTER_PERIOD_PERCENT_THRESHOLD)
 
         # ooft = Thread(target=_operation_orders_fetcher_loop.run_forever)
         # ooft.start()
@@ -150,6 +169,8 @@ async def createOperationThreads():
                 _price_movement_monitor_loop,
                 cache["priceMovementAlertNotifier"],
                 LEVERAGE_THRESHOLD,
+                LONGER_PERIOD_PERCENT_THRESHOLD,
+                SHORTER_PERIOD_PERCENT_THRESHOLD,
                 ACCESS_KEY,
                 SECRET_KEY,
             ),
