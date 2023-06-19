@@ -75,6 +75,9 @@ class PriceMovementMonitor:
                         shorter_period_condition_met = (
                             abs(percentDiff2mins) > self._shorterPeriodPercentThreshold
                         )
+                        logger.info(
+                            f"\n\t{ticker['s']} current price: {ticker['p']}\n\t{ticker['s']} open price 15 mins ago:\t{kline15MinsAgo.getOpen()}\n\t{ticker['s']} open price 2 mins ago:\t{kline2MinsAgo.getOpen()}\n\t{ticker['s']} price % diff against 15 mins ago:\t{abs(percentDiff15mins)}%\n\t{ticker['s']} price % diff against 2 mins ago:\t{abs(percentDiff2mins)}%"
+                        )
                         if longer_period_condition_met and shorter_period_condition_met:
                             # Send alert for shorter period
                             logger.info(
@@ -151,7 +154,7 @@ class PriceMovementMonitor:
             logger.debug(f"No klines to update for ticker {ticker}")
 
     def calculatePercentDiff(self, initial, latest):
-        return (latest - initial) / initial
+        return ((latest - initial) / initial) * 100
 
     async def leverageTickers(self, tickers):
         filteredTickers = []
