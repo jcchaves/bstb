@@ -115,6 +115,7 @@ def initPriceMovementMonitor(
     shorterPeriodPercentThreshold,
     accessKey,
     secretKey,
+    flags,
 ):
     asyncio.set_event_loop(loop)
 
@@ -127,6 +128,7 @@ def initPriceMovementMonitor(
         shorterPeriodPercentThreshold,
         accessKey,
         secretKey,
+        flags,
     )
     loop.run_forever()
 
@@ -139,6 +141,13 @@ async def createOperationThreads():
     try:
         ACCESS_KEY = os.getenv("ACCESS_KEY")
         SECRET_KEY = os.getenv("SECRET_KEY")
+        ENABLE_FUTURES_LEVERAGE_BRACKETS_API_USAGE: str = os.getenv(
+            "ENABLE_FUTURES_LEVERAGE_BRACKETS_API_USAGE"
+        )
+        if ENABLE_FUTURES_LEVERAGE_BRACKETS_API_USAGE.lower() == "true":
+            ENABLE_FUTURES_LEVERAGE_BRACKETS_API_USAGE = True
+        else:
+            ENABLE_FUTURES_LEVERAGE_BRACKETS_API_USAGE = False
         LEVERAGE_THRESHOLD = os.getenv("LEVERAGE_THRESHOLD")
         if LEVERAGE_THRESHOLD is None:
             LEVERAGE_THRESHOLD = 50
@@ -173,6 +182,9 @@ async def createOperationThreads():
                 SHORTER_PERIOD_PERCENT_THRESHOLD,
                 ACCESS_KEY,
                 SECRET_KEY,
+                {
+                    "enableFuturesLeverageBracketsApiUsage": ENABLE_FUTURES_LEVERAGE_BRACKETS_API_USAGE
+                },
             ),
         )
         pmm.start()

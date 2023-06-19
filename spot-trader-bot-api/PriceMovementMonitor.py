@@ -22,6 +22,7 @@ class PriceMovementMonitor:
         shorterPeriodPercentThreshold,
         accessKey,
         secretKey,
+        flags,
     ):
         self._mainLoop = mainLoop
         self._loop = loop
@@ -32,6 +33,7 @@ class PriceMovementMonitor:
         self._accessKey = accessKey
         self._secretKey = secretKey
         self._klines = {}
+        self._flags = flags
         self.submit_async(self.process(), loop)
 
     def submit_async(self, awaitable, loop):
@@ -177,9 +179,6 @@ class PriceMovementMonitor:
             self._bncClient = await AsyncClient.create(self._accessKey, self._secretKey)
             logger.debug("Fetch all tickers of interest...")
             tickers = await self._bncClient.futures_symbol_ticker()
-
-            tickers = [{"symbol": "BTCUSDT"}]
-
             tickersOfInterest = [
                 ticker["symbol"]
                 for ticker in tickers
@@ -188,7 +187,12 @@ class PriceMovementMonitor:
 
             logger.debug(f"Ticker of interest: {tickersOfInterest}")
 
-            # filteredTickers = await self.leverageTickers(tickersOfInterest)
+            filteredTickers = []
+            if self._flags["enableFuturesLeverageBracketsApiUsage"]:
+                filteredTickers = await self.leverageTickers(tickersOfInterest)
+            else:
+                # Use test ticker while this feature is fully enabled
+                filteredTickers = ["BTCUSDT"]
 
             logger.debug("Fetching last 15 minutes klines...")
             klinesFetcher = KLinesFetcher(
@@ -196,7 +200,7 @@ class PriceMovementMonitor:
                 self._accessKey,
                 self._secretKey,
             )
-            await klinesFetcher.fetchAllTickersKLines(tickersOfInterest)
+            await klinesFetcher.fetchAllTickersKLines(filteredTickers)
             self._klines = klinesFetcher.getKLines()
             logger.debug("Showing last 15 minutes klines")
             logger.debug(self._klines)
