@@ -6,7 +6,7 @@ import logging
 from logging.config import dictConfig
 import os
 from quart import Quart, request, websocket as qws
-from quart_cors import cors
+from quart_cors import cors, route_cors
 import sys
 from threading import Thread
 import traceback
@@ -225,8 +225,9 @@ async def createOperation():
 
 
 @app.route("/operations", methods=["GET"])
+@route_cors(allow_origin="*")
 async def listOperations():
-    return cache["operationManager"].listOperations()
+    return []
 
 
 @app.websocket("/ws")

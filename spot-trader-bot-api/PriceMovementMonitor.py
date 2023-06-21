@@ -77,8 +77,16 @@ class PriceMovementMonitor:
                         shorter_period_condition_met = (
                             abs(percentDiff2mins) > self._shorterPeriodPercentThreshold
                         )
+                        stats = {
+                            "symbol": ticker["s"],
+                            "price": ticker["p"],
+                            "price15MinsAgo": kline15MinsAgo.getOpen(),
+                            "percentDiff15Mins": abs(percentDiff15mins),
+                            "price2MinsAgo": kline2MinsAgo.getOpen(),
+                            "percentDiff2Mins": abs(percentDiff2mins),
+                        }
                         logger.info(
-                            f"\n\t{ticker['s']} current price: {ticker['p']}\n\t{ticker['s']} open price 15 mins ago:\t{kline15MinsAgo.getOpen()}\n\t{ticker['s']} open price 2 mins ago:\t{kline2MinsAgo.getOpen()}\n\t{ticker['s']} price % diff against 15 mins ago:\t{abs(percentDiff15mins)}%\n\t{ticker['s']} price % diff against 2 mins ago:\t{abs(percentDiff2mins)}%"
+                            f"\n\t{stats['symbol']} current price: {stats['price']}\n\t{stats['symbol']} open price 15 mins ago:\t{stats['price15MinsAgo']}\n\t{stats['symbol']} open price 2 mins ago:\t{stats['price2MinsAgo']}\n\t{stats['symbol']} price % diff against 15 mins ago:\t{stats['percentDiff15Mins']}%\n\t{stats['symbol']} price % diff against 2 mins ago:\t{stats['percentDiff2Mins']}%"
                         )
                         if longer_period_condition_met and shorter_period_condition_met:
                             # Send alert for shorter period
@@ -108,7 +116,7 @@ class PriceMovementMonitor:
                             )
 
                         self._mainLoop.call_soon_threadsafe(
-                            self._alertNotifier.publish, json.dumps(msg)
+                            self._alertNotifier.publish, json.dumps(stats)
                         )
                     else:
                         logger.debug(f"No klines captured for symbol '{ticker['s']}'")
