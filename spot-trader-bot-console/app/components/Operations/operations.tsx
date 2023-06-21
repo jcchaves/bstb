@@ -9,7 +9,7 @@ interface Operation {
 export default function Operations() {
   const [operations, setOperations] = useState<Array<Operation>>([])
   useEffect(() => {
-    const operations = fetch("http://127.0.0.1:5000/operations")
+    const operations = fetch("http://127.0.0.1:8080/operations")
       .then(response => response.json())
       .then(data => setOperations(data.operations))
   }, []);
